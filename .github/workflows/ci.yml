@@ -1,0 +1,146 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened, closed]  # wichtig: 'closed' hinzufügen
+  push:
+    branches: [ main ]
+
+jobs:
+  php-tests:
+    name: PHP Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports: [5432:5432]
+        options: >-
+          --health-cmd="pg_isready -U test -d test"
+          --health-interval=10s --health-timeout=5s --health-retries=5
+    env:
+      APP_ENV: testing
+      # fester Key reicht in CI, 'key:generate' nicht nötig
+      APP_KEY: base64:abcdefghijklmnopqrstuvwxyz0123456789abcd==
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: test
+      DB_USERNAME: test
+      DB_PASSWORD: test
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_pgsql, intl, gd, zip, bcmath
+          coverage: none
+
+      - name: Cache composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ hashFiles('**/composer.lock') }}
+
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: php artisan migrate --force
+      - run: php artisan test --colors=always
+
+  frontend:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Cache npm
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ hashFiles('**/package-lock.json') }}
+      - run: npm ci
+      - run: npm run build
+
+  notify:
+  name: Notify Teams & Jira on PR merge
+  needs: [php-tests, frontend]
+  if: >
+    github.event_name == 'pull_request' &&
+    github.event.action == 'closed' &&
+    github.event.pull_request.merged == true
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Extract Jira issue keys
+      id: keys
+      run: |
+        set -e
+        BRANCH="${{ github.event.pull_request.head.ref }}"
+        TITLE="${{ github.event.pull_request.title }}"
+        BODY="${{ github.event.pull_request.body }}"
+        COMMITS="$(git log -n 50 --pretty=format:%s || true)"
+        TEXT="$BRANCH
+        $TITLE
+        $BODY
+        $COMMITS"
+        KEYS=$(echo "$TEXT" | grep -oE '[A-Z]+-[0-9]+' | sort -u | tr '\n' ' ')
+        echo "keys=$KEYS" >> "$GITHUB_OUTPUT"
+
+    - name: Notify MS Teams (optional)
+      if: secrets.TEAMS_WEBHOOK_URL != ''
+      env:
+        TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+      run: |
+        set -e
+        # Nachricht als Here-Doc (keine Quote-Hölle)
+        read -r -d '' MSG <<EOF
+        ✅ PR #${{ github.event.pull_request.number }} merged into *${{ github.base_ref }}*:
+        ${{ github.event.pull_request.title }}
+        Keys: ${{ steps.keys.outputs.keys }}
+        EOF
+
+        # JSON sicher bauen (keine manuellen Escapes nötig)
+        JSON=$(python3 - <<'PY'
+        import json, os; print(json.dumps({"text": os.environ["MSG"]}))
+        PY
+        )
+        curl -sS -H "Content-Type: application/json" -d "$JSON" "$TEAMS_WEBHOOK_URL"
+
+    - name: Comment Jira & transition (Data Center/Cloud)
+      if: steps.keys.outputs.keys != ''
+      env:
+        JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+        JIRA_USER: ${{ secrets.JIRA_USER }}      # Cloud: E-Mail, DC: Username
+        JIRA_TOKEN: ${{ secrets.JIRA_TOKEN }}    # Cloud: API Token, DC: PAT/Passwort
+        JIRA_TRANSITION_ID: ${{ secrets.JIRA_TRANSITION_ID }} # optional
+      run: |
+        set -e
+        for KEY in ${{ steps.keys.outputs.keys }}; do
+          # Kommentar
+          curl -sS -u "$JIRA_USER:$JIRA_TOKEN" \
+               -H "Content-Type: application/json" \
+               -d "{\"body\":\"✅ PR merged: ${{ github.event.pull_request.html_url }}\"}" \
+               "$JIRA_BASE_URL/rest/api/2/issue/$KEY/comment" >/dev/null
+
+          # optional: Transition auf Done
+          if [ -n "$JIRA_TRANSITION_ID" ]; then
+            curl -sS -u "$JIRA_USER:$JIRA_TOKEN" \
+                 -H "Content-Type: application/json" \
+                 -d "{\"transition\":{\"id\":\"$JIRA_TRANSITION_ID\"}}" \
+                 "$JIRA_BASE_URL/rest/api/2/issue/$KEY/transitions" >/dev/null
+          fi
+        done
