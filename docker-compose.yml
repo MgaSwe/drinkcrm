@@ -1,0 +1,106 @@
+x-php-env: &php-env
+  APP_ENV: local
+  APP_DEBUG: "true"
+  APP_URL: http://localhost:8080
+  DB_CONNECTION: pgsql
+  DB_HOST: db
+  DB_PORT: 5432
+  DB_DATABASE: drinkcrm
+  DB_USERNAME: drinkcrm
+  DB_PASSWORD: secret
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  MAIL_MAILER: smtp
+  MAIL_HOST: mailhog
+  MAIL_PORT: 1025
+  TEAMS_INCOMING_WEBHOOK_URL: ${TEAMS_INCOMING_WEBHOOK_URL:-}
+  JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+  JIRA_USER: ${JIRA_USER:-}
+  JIRA_TOKEN: ${JIRA_TOKEN:-}
+  JIRA_PROJECT_KEY: ${JIRA_PROJECT_KEY:-OPS}
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./:/var/www/html:delegated
+      - ./infra/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [php, node]
+    networks: [appnet]
+
+  php:
+    build:
+      context: .
+      dockerfile: infra/php/Dockerfile
+    user: "${UID:-1000}:${GID:-1000}"
+    environment: *php-env
+    volumes:
+      - ./:/var/www/html:delegated
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks: [appnet]
+
+  queue:
+    build:
+      context: .
+      dockerfile: infra/php/Dockerfile
+    user: "${UID:-1000}:${GID:-1000}"
+    command: php artisan queue:work --tries=3 --timeout=90
+    environment: *php-env
+    volumes:
+      - ./:/var/www/html:delegated
+    depends_on: [php, redis, db]
+    networks: [appnet]
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: infra/php/Dockerfile
+    user: "${UID:-1000}:${GID:-1000}"
+    command: sh -lc "while :; do php artisan schedule:run --verbose --no-interaction; sleep 60; done"
+    environment: *php-env
+    volumes:
+      - ./:/var/www/html:delegated
+    depends_on: [php]
+    networks: [appnet]
+
+  node:
+    image: node:20-alpine
+    user: "${UID:-1000}:${GID:-1000}"
+    working_dir: /var/www/html
+    command: sh -lc "npm install && npm run dev"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./:/var/www/html:delegated
+    networks: [appnet]
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: drinkcrm
+      POSTGRES_USER: drinkcrm
+      POSTGRES_PASSWORD: secret
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks: [appnet]
+
+  redis:
+    image: redis:7-alpine
+    networks: [appnet]
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "8025:8025"
+    networks: [appnet]
+
+volumes:
+  dbdata:
+
+networks:
+  appnet:
