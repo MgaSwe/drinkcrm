@@ -72,10 +72,10 @@ jobs:
       - run: npm run build
 
   notify:
-  name: Notify Teams & Jira on PR merge
-  needs: [php-tests, frontend]
-  if: ${{ github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true }}
-  runs-on: ubuntu-latest
+    name: Notify Teams & Jira on PR merge
+    needs: [php-tests, frontend]
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true }}
+    runs-on: ubuntu-latest
   env:
     # Secrets einmal zentral als Env binden
     TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
