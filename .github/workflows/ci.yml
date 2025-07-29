@@ -71,74 +71,74 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-    notify:
-      name: Notify Teams & Jira on PR merge
-      needs: [php-tests, frontend]
-      if: ${{ github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true }}
-      runs-on: ubuntu-latest
-      env:
-        # Secrets einmal zentral als Env binden
-        TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
-        JIRA_BASE_URL:     ${{ secrets.JIRA_BASE_URL }}
-        JIRA_USER:         ${{ secrets.JIRA_USER }}
-        JIRA_TOKEN:        ${{ secrets.JIRA_TOKEN }}
-        JIRA_TRANSITION_ID: ${{ secrets.JIRA_TRANSITION_ID }}
-      steps:
-        - uses: actions/checkout@v4
-          with:
-            fetch-depth: 0
+  notify:
+    name: Notify Teams & Jira on PR merge
+    needs: [php-tests, frontend]
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true }}
+    runs-on: ubuntu-latest
+    env:
+      # Secrets einmal zentral als Env binden
+      TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+      JIRA_BASE_URL:     ${{ secrets.JIRA_BASE_URL }}
+      JIRA_USER:         ${{ secrets.JIRA_USER }}
+      JIRA_TOKEN:        ${{ secrets.JIRA_TOKEN }}
+      JIRA_TRANSITION_ID: ${{ secrets.JIRA_TRANSITION_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-        - name: Extract Jira issue keys
-          id: keys
-          run: |
-            set -e
-            BRANCH="${{ github.event.pull_request.head.ref }}"
-            TITLE="${{ github.event.pull_request.title }}"
-            BODY="${{ github.event.pull_request.body }}"
-            COMMITS="$(git log -n 50 --pretty=format:%s || true)"
-            TEXT="$BRANCH
-            $TITLE
-            $BODY
-            $COMMITS"
-            KEYS=$(echo "$TEXT" | grep -oE '[A-Z]+-[0-9]+' | sort -u | tr '\n' ' ')
-            echo "keys=$KEYS" >> "$GITHUB_OUTPUT"
+      - name: Extract Jira issue keys
+        id: keys
+        run: |
+          set -e
+          BRANCH="${{ github.event_pull_request.head.ref }}"
+          TITLE="${{ github.event.pull_request.title }}"
+          BODY="${{ github.event.pull_request.body }}"
+          COMMITS="$(git log -n 50 --pretty=format:%s || true)"
+          TEXT="$BRANCH
+          $TITLE
+          $BODY
+          $COMMITS"
+          KEYS=$(echo "$TEXT" | grep -oE '[A-Z]+-[0-9]+' | sort -u | tr '\n' ' ')
+          echo "keys=$KEYS" >> "$GITHUB_OUTPUT"
 
-        - name: Notify MS Teams (optional)
-          if: ${{ env.TEAMS_WEBHOOK_URL != '' }}
-          run: |
-            set -e
-            # Nachricht als Here-Doc (Actions-Variablen werden vorher ersetzt)
-            read -r -d '' MSG <<'EOF'
-            ✅ PR #${{ github.event.pull_request.number }} merged into *${{ github.base_ref }}*:
-            ${{ github.event.pull_request.title }}
-            Keys: ${{ steps.keys.outputs.keys }}
-            EOF
-            export MSG
+      - name: Notify MS Teams (optional)
+        if: ${{ env.TEAMS_WEBHOOK_URL != '' }}
+        run: |
+          set -e
+          # Nachricht als Here-Doc (Actions-Variablen werden vorher ersetzt)
+          read -r -d '' MSG <<'EOF'
+          ✅ PR #${{ github.event.pull_request.number }} merged into *${{ github.base_ref }}*:
+          ${{ github.event.pull_request.title }}
+          Keys: ${{ steps.keys.outputs.keys }}
+          EOF
+          export MSG
 
-            # JSON sicher bauen
-            JSON=$(python3 - <<'PY'
-            import json, os
-            print(json.dumps({"text": os.environ["MSG"]}))
-            PY
-            )
-            curl -sS -H "Content-Type: application/json" -d "$JSON" "$TEAMS_WEBHOOK_URL"
+          # JSON sicher bauen
+          JSON=$(python3 - <<'PY'
+          import json, os
+          print(json.dumps({"text": os.environ["MSG"]}))
+          PY
+          )
+          curl -sS -H "Content-Type: application/json" -d "$JSON" "$TEAMS_WEBHOOK_URL"
 
-        - name: Comment Jira & transition (Data Center/Cloud)
-          if: ${{ steps.keys.outputs.keys != '' }}
-          run: |
-            set -e
-            for KEY in ${{ steps.keys.outputs.keys }}; do
-              # Kommentar ins Issue
+      - name: Comment Jira & transition (Data Center/Cloud)
+        if: ${{ steps.keys.outputs.keys != '' }}
+        run: |
+          set -e
+          for KEY in ${{ steps.keys.outputs.keys }}; do
+            # Kommentar ins Issue
+            curl -sS -u "$JIRA_USER:$JIRA_TOKEN" \
+                 -H "Content-Type: application/json" \
+                 -d "{\"body\":\"✅ PR merged: ${{ github.event.pull_request.html_url }}\"}" \
+                 "$JIRA_BASE_URL/rest/api/2/issue/$KEY/comment" >/dev/null
+
+            # optional: Transition (z. B. Done)
+            if [ -n "$JIRA_TRANSITION_ID" ]; then
               curl -sS -u "$JIRA_USER:$JIRA_TOKEN" \
-                  -H "Content-Type: application/json" \
-                  -d "{\"body\":\"✅ PR merged: ${{ github.event.pull_request.html_url }}\"}" \
-                  "$JIRA_BASE_URL/rest/api/2/issue/$KEY/comment" >/dev/null
-
-              # optional: Transition (z. B. Done)
-              if [ -n "$JIRA_TRANSITION_ID" ]; then
-                curl -sS -u "$JIRA_USER:$JIRA_TOKEN" \
-                    -H "Content-Type: application/json" \
-                    -d "{\"transition\":{\"id\":\"$JIRA_TRANSITION_ID\"}}" \
-                    "$JIRA_BASE_URL/rest/api/2/issue/$KEY/transitions" >/dev/null
-              fi
-            done
+                   -H "Content-Type: application/json" \
+                   -d "{\"transition\":{\"id\":\"$JIRA_TRANSITION_ID\"}}" \
+                   "$JIRA_BASE_URL/rest/api/2/issue/$KEY/transitions" >/dev/null
+            fi
+          done
