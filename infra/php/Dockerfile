@@ -8,6 +8,13 @@ RUN apk add --no-cache \
  && pecl install redis xdebug \
  && docker-php-ext-enable redis xdebug
 
+
+RUN apk add --no-cache git openssh-client libpng-dev libzip-dev oniguruma-dev icu-dev postgresql-dev $PHPIZE_DEPS \
+    && docker-php-ext-install pdo pdo_pgsql intl mbstring gd zip bcmath \
+    && pecl install redis xdebug \
+    && docker-php-ext-enable redis xdebug
+
+
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 WORKDIR /var/www/html
 
