@@ -1,0 +1,47 @@
+{
+  "name": "DrinkCRM (Laravel+Vue)",
+  "dockerComposeFile": ["../docker-compose.yml"],
+  "service": "php",
+  "workspaceFolder": "/var/www/html",
+  "runServices": ["php", "node", "db", "redis", "mailhog", "nginx", "queue", "scheduler"],
+  "overrideCommand": true,
+
+  // Optional: UID/GID aus deiner Umgebung an den Container durchreichen
+  "containerEnv": {
+    "UID": "1000",
+    "GID": "1000"
+  },
+
+  // Nach dem ersten Attach einmal Composer laufen lassen & Ziggy generieren
+  "postCreateCommand": "composer install --no-interaction --prefer-dist --no-progress && php artisan ziggy:generate resources/js/ziggy.js || true",
+
+  // Beim Start automatisch Migrations ausführen (fehlschlagen erlauben)
+  "postStartCommand": "php artisan migrate --force || true",
+
+  "forwardPorts": [8080, 8025, 5173],
+  "portsAttributes": {
+    "8080": { "label": "App (Nginx)" },
+    "8025": { "label": "Mailhog" },
+    "5173": { "label": "Vite" }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "bmewburn.vscode-intelephense-client",
+        "amiralizadeh9480.laravel-extra-intellisense",
+        "onecentlin.laravel-blade",
+        "shufo.vscode-blade-formatter",
+        "xdebug.php-pack",
+        "Vue.volar",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "php.validate.executablePath": "/usr/local/bin/php",
+        "intelephense.files.maxSize": 10000000
+      }
+    }
+  }
+}
+
