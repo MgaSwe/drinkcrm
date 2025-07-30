@@ -9,55 +9,55 @@ on:
 
 jobs:
   php-tests:
-  name: PHP Tests
-  runs-on: ubuntu-latest
-  services:
-    postgres:
-      image: postgres:15-alpine
-      env:
-        POSTGRES_DB: test
-        POSTGRES_USER: test
-        POSTGRES_PASSWORD: test
-      ports: [5432:5432]
-      options: >-
-        --health-cmd="pg_isready -U test -d test"
-        --health-interval=10s --health-timeout=5s --health-retries=5
-  env:
-    APP_ENV: testing
-    DB_CONNECTION: pgsql
-    DB_HOST: 127.0.0.1
-    DB_PORT: 5432
-    DB_DATABASE: test
-    DB_USERNAME: test
-    DB_PASSWORD: test
-    CACHE_STORE: array
-    SESSION_DRIVER: array
-    QUEUE_CONNECTION: sync
-  steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+    name: PHP Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports: [5432:5432]
+        options: >-
+          --health-cmd="pg_isready -U test -d test"
+          --health-interval=10s --health-timeout=5s --health-retries=5
+    env:
+      APP_ENV: testing
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: test
+      DB_USERNAME: test
+      DB_PASSWORD: test
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - uses: shivammathur/setup-php@v2
-      with:
-        php-version: '8.3'
-        extensions: pdo_pgsql, intl, gd, zip, bcmath
-        coverage: none
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_pgsql, intl, gd, zip, bcmath
+          coverage: none
 
-    - name: Cache composer
-      uses: actions/cache@v4
-      with:
-        path: ~/.composer/cache
-        key: composer-${{ hashFiles('**/composer.lock') }}
+      - name: Cache composer
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache
+          key: composer-${{ hashFiles('**/composer.lock') }}
 
-    - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: composer install --no-interaction --prefer-dist --no-progress
 
-    # 🔑 Gültigen App Key erzeugen und als Env für die folgenden Steps setzen
-    - name: Generate APP_KEY
-      run: echo "APP_KEY=$(php artisan key:generate --show)" >> $GITHUB_ENV
+      # 🔑 Gültigen App Key erzeugen und als Env für die folgenden Steps setzen
+      - name: Generate APP_KEY
+        run: echo "APP_KEY=$(php artisan key:generate --show)" >> $GITHUB_ENV
 
-    - run: php artisan migrate --force
-    - run: php artisan test --colors=always
+      - run: php artisan migrate --force
+      - run: php artisan test --colors=always
 
 
   frontend:
