@@ -17,6 +17,15 @@
     "5173": { "label": "Vite" }
   },
 
+    "mounts": [
+    "source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind"
+  ],
+  "containerEnv": {
+    "SSH_AUTH_SOCK": "/ssh-agent",
+    "UID": "1000",
+    "GID": "1000"
+  },
+
   "customizations": {
     "vscode": {
       "extensions": [
