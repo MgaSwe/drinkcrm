@@ -35,4 +35,13 @@ return [
         ],
     ],
 
+    'jira' => [
+        'base_url'       => env('JIRA_BASE_URL'),
+        'user'           => env('JIRA_USER'),
+        'token'          => env('JIRA_TOKEN'),
+        'auth'           => env('JIRA_AUTH', 'pat'),
+        'project_key'    => env('JIRA_PROJECT_KEY', 'DRNK'),
+        'issue_type'     => env('JIRA_ISSUE_TYPE', 'Task'),
+        'webhook_secret' => env('JIRA_WEBHOOK_SECRET'),
+    ],
 ];

@@ -35,7 +35,12 @@ services:
       context: .
       dockerfile: infra/php/Dockerfile
     user: "${UID:-1000}:${GID:-1000}"
-    environment: *php-env
+    env_file:
+      - .env
+    environment:
+      JIRA_BASE_URL: ${JIRA_BASE_URL}
+      JIRA_USER: ${JIRA_USER}
+      JIRA_TOKEN: ${JIRA_TOKEN}    
     volumes:
       - ./:/var/www/html:delegated
     extra_hosts:
