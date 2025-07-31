@@ -3,64 +3,45 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
-use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\RequestException;
 
 class JiraClient
 {
-    private string $base;
-    private string $api = '/rest/api/2'; // DC
+    protected string $baseUrl;
+    protected string $token;
+    protected string $projectKey;
+    protected string $issueType;
 
     public function __construct()
     {
-        $this->base = rtrim((string) config('services.jira.base_url'), '/');
+        $this->baseUrl    = rtrim(config('services.jira.base_url', env('JIRA_BASE_URL')), '/');
+        $this->token      = config('services.jira.token', env('JIRA_TOKEN'));
+        $this->projectKey = config('services.jira.project_key', env('JIRA_PROJECT_KEY', 'DRNK'));
+        $this->issueType  = config('services.jira.issue_type', env('JIRA_ISSUE_TYPE', 'Task'));
     }
 
-    private function req(): PendingRequest
-    {
-        $req = Http::acceptJson();
-        if (config('services.jira.auth') === 'pat') {
-            $req = $req->withToken((string) config('services.jira.token')); // Bearer
-        } else {
-            $req = $req->withBasicAuth(
-                (string) config('services.jira.user'),
-                (string) config('services.jira.token')
-            );
-        }
-        return $req;
-    }
+    public function createIssue(string $summary, string $description, ?string $projectKey = null, ?string $issueType = null, array $extraFields = []): array {
+        $projectKey = $projectKey ?: $this->projectKey;
+        $issueType  = $issueType  ?: $this->issueType;
 
-    public function createIssue(string $summary, string $description, array $fields = []): array
-    {
         $payload = [
             'fields' => array_merge([
-                'project'   => ['key' => (string) config('services.jira.project_key')],
-                'summary'   => $summary,
-                'issuetype' => ['name' => (string) config('services.jira.issue_type', 'Task')],
+                'project'     => ['key' => $projectKey],
+                'summary'     => $summary,
+                'issuetype'   => ['name' => $issueType],
                 'description' => $description,
-            ], $fields),
+            ], $extraFields),
         ];
 
-        return $this->req()->post("{$this->base}{$this->api}/issue", $payload)->throw()->json();
-    }
+        $resp = Http::withToken($this->token)
+            ->acceptJson()
+            ->post("{$this->baseUrl}/rest/api/2/issue", $payload);
 
-    public function comment(string $issueKey, string $text): void
-    {
-        $this->req()->post("{$this->base}{$this->api}/issue/{$issueKey}/comment", ['body' => $text])->throw();
-    }
-
-    public function transitionByName(string $issueKey, string $name): void
-    {
-        $res = $this->req()->get("{$this->base}{$this->api}/issue/{$issueKey}/transitions")->throw()->json();
-        $id  = collect($res['transitions'] ?? [])->first(fn($t) => $t['name'] === $name)['id'] ?? null;
-        if ($id) {
-            $this->req()->post("{$this->base}{$this->api}/issue/{$issueKey}/transitions", ['transition' => ['id' => $id]])->throw();
+        if ($resp->failed()) {
+            throw new RequestException($resp);
         }
+
+        return $resp->json();
     }
 
-    public function addRemoteLink(string $issueKey, string $url, string $title): void
-    {
-        $this->req()->post("{$this->base}{$this->api}/issue/{$issueKey}/remotelink", [
-            'object' => ['url' => $url, 'title' => $title],
-        ])->throw();
-    }
 }
